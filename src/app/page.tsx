@@ -121,6 +121,15 @@ export default function Home() {
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
 
+  // Helper to initialize address objects safely
+  const initializeAddress = (addr?: Partial<Address>): Address => ({
+      name: addr?.name ?? '',
+      address: addr?.address ?? '',
+      city: addr?.city ?? '',
+      state: addr?.state ?? '',
+      zipCode: addr?.zipCode ?? '',
+  });
+
   const handleImageUpload = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -144,33 +153,24 @@ export default function Home() {
         setImageDataUri(dataUri);
         try {
           const result = await extractRateConData({ photoDataUri: dataUri });
-           // Ensure shipper/consignee exist as objects and initialize potentially missing fields
-           // within address objects to empty strings for consistent display.
-            const initializeAddress = (addr?: Partial<Address>): Address => ({
-                name: addr?.name ?? '',
-                address: addr?.address ?? '',
-                city: addr?.city ?? '',
-                state: addr?.state ?? '',
-                zipCode: addr?.zipCode ?? '',
-            });
+          console.log("Raw AI Output:", result); // Log raw output
 
-            // Ensure the base result structure before accessing nested properties
-            const safeResult = {
-                ...result,
-                shipper: result.shipper ?? {}, // Ensure shipper is at least an empty object
-                consignee: result.consignee ?? {}, // Ensure consignee is at least an empty object
-            };
-
+            // Initialize the result structure, ensuring shipper/consignee are at least empty objects
+            // and then initialize the address fields within them.
             const initializedResult: ExtractRateConDataOutput = {
-                loadNumber: safeResult.loadNumber ?? '',
-                shipper: initializeAddress(safeResult.shipper),
-                consignee: initializeAddress(safeResult.consignee),
-                weight: safeResult.weight ?? '',
-                amount: safeResult.amount ?? '',
-                truckNumber: safeResult.truckNumber ?? '',
+                loadNumber: result?.loadNumber ?? '',
+                // Ensure shipper/consignee exist before initializing their internal fields
+                shipper: initializeAddress(result?.shipper ?? {}),
+                consignee: initializeAddress(result?.consignee ?? {}),
+                weight: result?.weight ?? '',
+                amount: result?.amount ?? '',
+                truckNumber: result?.truckNumber ?? '',
             };
+
+            console.log("Initialized Frontend Data:", initializedResult); // Log initialized data
+
           setExtractedData(initializedResult);
-          setEditedData(initializedResult); // Initialize edited data
+          setEditedData(initializedResult); // Initialize edited data with the safe, initialized structure
         } catch (err) {
           console.error("Error extracting data:", err);
           setError("Failed to extract data from the image. Please try again, check the image quality, or ensure the document is a standard Rate Confirmation.");
@@ -191,7 +191,7 @@ export default function Home() {
       }
       reader.readAsDataURL(file);
     }
-  }, [toast]);
+  }, [toast]); // Removed initializeAddress from deps as it's defined outside useCallback scope now
 
   const handleEditChange = (field: EditableField, value: string) => {
      setEditedData(prev => {
@@ -271,11 +271,8 @@ export default function Home() {
        // Reset refs and classes
        dragItem.current = null;
        dragOverItem.current = null;
-       e.currentTarget.classList.remove('dragging');
-       // e.currentTarget.classList.remove('dragover'); // Ensure dragover is also removed
-
-        // Remove dragging class from all rows just in case
-       const rows = e.currentTarget.parentElement?.querySelectorAll('tr');
+      // Find all rows and remove dragging class - safer way
+       const rows = e.currentTarget.closest('tbody')?.querySelectorAll('tr');
        rows?.forEach(row => row.classList.remove('dragging'));
    };
 
@@ -378,7 +375,7 @@ export default function Home() {
                            onDragOver={handleDragOver}
                            onDragLeave={handleDragLeave}
                            onDrop={handleDrop}
-                           className={`cursor-move hover:bg-muted/70 ${dragItem.current === index ? 'opacity-50 bg-accent/20' : ''}`} // Improved visual feedback
+                           className={`hover:bg-muted/70 ${dragItem.current === index ? 'opacity-50 bg-accent/20' : ''}`} // Improved visual feedback - cursor handled globally now
                          >
                            <TableCell className="cursor-grab active:cursor-grabbing p-2 w-10 touch-none"> {/* Added touch-none */}
                              <GripVertical className="w-4 h-4 text-muted-foreground pointer-events-none" /> {/* Added pointer-events-none */}
@@ -412,18 +409,23 @@ export default function Home() {
           </CardContent>
         </Card>
       </div>
+       {/* Apply grab cursor globally for draggable rows */}
        <style jsx global>{`
+         tr[draggable="true"] {
+           cursor: move; /* More specific than just grab */
+           cursor: grab;
+         }
+         tr[draggable="true"]:active {
+            cursor: grabbing;
+         }
          .dragging {
            opacity: 0.5;
            background-color: hsl(var(--accent) / 0.2); /* Use theme variable */
          }
-         .dragover {
-            /* Optional: Add styles for the element being dragged over */
-            /* Example: border-top: 2px solid hsl(var(--primary)); */
-         }
-         tr.dragging td {
-            /* Optional: Style cells within the dragging row */
-         }
+         /* Optional: Styles for element being dragged over */
+         /* .dragover {
+            border-top: 2px solid hsl(var(--primary));
+         } */
        `}</style>
     </div>
   );
