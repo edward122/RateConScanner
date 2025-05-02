@@ -1,6 +1,6 @@
 'use server';
 /**
- * @fileOverview This file defines a Genkit flow for extracting data from Rate Con documents using OCR and NLP.
+ * @fileOverview This file defines a Genkit flow for extracting data from Rate Con documents using image analysis.
  *
  * - extractRateConData - A function that takes an image of a Rate Con document and returns the extracted data.
  * - ExtractRateConDataInput - The input type for the extractRateConData function, which is an image data URI.
@@ -9,7 +9,6 @@
 
 import {ai} from '@/ai/ai-instance';
 import {z} from 'genkit';
-import {performOcr} from '@/services/ocr';
 
 const ExtractRateConDataInputSchema = z.object({
   photoDataUri: z
@@ -26,7 +25,7 @@ const ExtractRateConDataOutputSchema = z.object({
   consignee: z.string().describe('The consignee from the Rate Con document.'),
   weight: z.string().describe('The weight from the Rate Con document.'),
   amount: z.string().describe('The amount from the Rate Con document.'),
-  truckNumber: z.string().optional().describe('The truck number from the Rate Con document, if available.'),
+  truckNumber: z.string().optional().describe('The truck number from the Rate Con document, if available. Often found near the top middle of the document.'),
 });
 export type ExtractRateConDataOutput = z.infer<typeof ExtractRateConDataOutputSchema>;
 
@@ -37,27 +36,25 @@ export async function extractRateConData(input: ExtractRateConDataInput): Promis
 const extractRateConDataPrompt = ai.definePrompt({
   name: 'extractRateConDataPrompt',
   input: {
-    schema: z.object({
-      ocrText: z.string().describe('The OCR text extracted from the Rate Con document.'),
-    }),
+    schema: ExtractRateConDataInputSchema, // Input is now the image data URI
   },
   output: {
     schema: ExtractRateConDataOutputSchema,
   },
-  prompt: `You are an expert data extraction specialist, skilled at extracting information from Rate Confirmation documents.
+  prompt: `You are an expert data extraction specialist, skilled at extracting information from Rate Confirmation documents using image analysis.
 
-  Given the following OCR text from a Rate Con document, extract the following fields:
+  Analyze the provided image of a Rate Con document and extract the following fields:
 
   - Load Number
   - Shipper
   - Consignee
   - Weight
   - Amount
-  - Truck Number (if available)
+  - Truck Number (if available - note: this is often located near the top middle of the document)
 
-  OCR Text: {{{ocrText}}}
+  Image: {{media url=photoDataUri}}
 
-  Return the extracted data in JSON format.  If a field is not available, leave it blank.  Do not add any additional text to the output.  Make sure the outputted JSON is parseable.  Be as accurate as possible.
+  Return the extracted data in JSON format. If a field is not clearly visible or identifiable in the image, leave it blank or as an empty string. Do not add any additional text to the output. Make sure the outputted JSON is parseable. Be as accurate as possible based on the image content.
   `,
 });
 
@@ -71,10 +68,12 @@ const extractRateConDataFlow = ai.defineFlow<
     outputSchema: ExtractRateConDataOutputSchema,
   },
   async input => {
-    const ocrResult = await performOcr(input.photoDataUri);
-    const {output} = await extractRateConDataPrompt({
-      ocrText: ocrResult.text,
-    });
-    return output!;
+    // Directly call the prompt with the image data URI
+    const {output} = await extractRateConDataPrompt(input);
+    // Ensure output is not null or undefined before returning
+    if (!output) {
+      throw new Error("Failed to generate output from the prompt.");
+    }
+    return output;
   }
 );

@@ -1,1 +1,1 @@
-import '@/ai/flows/extract-rate-con-data.ts';
+import '@/ai/flows/extract-rate-con-data';
