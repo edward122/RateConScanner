@@ -26,15 +26,15 @@ const AddressSchema = z.object({
   city: z.string().optional().describe('The city.'),
   state: z.string().optional().describe('The state or province abbreviation (e.g., CA, TX).'),
   zipCode: z.string().optional().describe('The postal or ZIP code.'),
-}).describe('Structured address information.');
+}).describe('Structured address information. Ensure each field contains only the relevant text for that part of the address.');
 
 
 const ExtractRateConDataOutputSchema = z.object({
   loadNumber: z.string().optional().describe('The load number from the Rate Con document.'),
-  shipper: AddressSchema.optional().describe('The structured address information for the shipper.'),
-  consignee: AddressSchema.optional().describe('The structured address information for the consignee.'),
-  weight: z.string().optional().describe('The weight from the Rate Con document.'),
-  amount: z.string().optional().describe('The amount from the Rate Con document.'),
+  shipper: AddressSchema.optional().describe('The structured address information for the shipper. Return a JSON object, not the string "[object Object]".'),
+  consignee: AddressSchema.optional().describe('The structured address information for the consignee. Return a JSON object, not the string "[object Object]".'),
+  weight: z.string().optional().describe('The weight from the Rate Con document. Extract only the numeric value, excluding units like "lbs" or commas.'),
+  amount: z.string().optional().describe('The amount from the Rate Con document. Extract only the numeric value, excluding currency symbols (like "$", "USD") or commas.'),
   truckNumber: z.string().optional().describe('The truck number from the Rate Con document, if available. Often found near the top middle of the document.'),
 });
 export type ExtractRateConDataOutput = z.infer<typeof ExtractRateConDataOutputSchema>;
@@ -55,19 +55,19 @@ const extractRateConDataPrompt = ai.definePrompt({
 
   Analyze the provided image of a Rate Con document and extract the following fields:
 
-  - Load Number
-  - Shipper (Extract Name, Address, City, State, and Zip Code separately)
-  - Consignee (Extract Name, Address, City, State, and Zip Code separately)
-  - Weight
-  - Amount
-  - Truck Number (if available - note: this is often located near the top middle of the document)
+  - Load Number: The identifier for the load.
+  - Shipper: Extract Name, Address, City, State, and Zip Code separately into a structured JSON object. DO NOT return the literal string "[object Object]".
+  - Consignee: Extract Name, Address, City, State, and Zip Code separately into a structured JSON object. DO NOT return the literal string "[object Object]".
+  - Weight: Extract **only the numerical value** for the weight. Exclude any units (like "lbs") or commas. Example: if the document says "48,000 lbs", extract "48000".
+  - Amount: Extract **only the numerical value** for the amount. Exclude any currency symbols (like "$", "USD") or commas. Example: if the document says "USD 1,500.00", extract "1500.00" or "1500".
+  - Truck Number: If available, extract the truck number. This is often located near the top middle of the document.
 
   Image: {{media url=photoDataUri}}
 
-  Return the extracted data in JSON format according to the specified output schema.
+  Return the extracted data in JSON format strictly according to the specified output schema.
   For Shipper and Consignee, provide the information as a nested JSON object with fields: name, address, city, state, zipCode.
-  If any specific field (like load number, weight, amount, truck number, or any address component) is not clearly visible or identifiable in the image, return null or an empty string for that specific field. Do not make up information.
-  Do not add any additional text to the output. Make sure the outputted JSON is parseable and strictly adheres to the schema. Be as accurate as possible based on the image content.
+  If any specific field (like load number, weight, amount, truck number, or any address component like city or zipCode) is not clearly visible or identifiable in the image, return null or an empty string for that specific field within the JSON structure. Do not invent information.
+  The output must be a single, valid, parseable JSON object conforming exactly to the schema, with no extra text before or after it.
   `,
 });
 
@@ -87,11 +87,27 @@ const extractRateConDataFlow = ai.defineFlow<
     if (!output) {
       throw new Error("Failed to generate output from the prompt.");
     }
-    // Ensure shipper and consignee are objects even if empty
+
+    // Basic validation/cleaning, though the LLM should handle this based on the prompt.
+    // Ensure shipper/consignee are objects. Handle if LLM mistakenly returns non-object.
+    const cleanOutput = { ...output };
+    if (typeof cleanOutput.shipper !== 'object' || cleanOutput.shipper === null) {
+        cleanOutput.shipper = {};
+    }
+     if (typeof cleanOutput.consignee !== 'object' || cleanOutput.consignee === null) {
+        cleanOutput.consignee = {};
+     }
+
+     // Optional: Further clean weight/amount if needed, but prompt aims for numeric strings.
+     // Example: cleanOutput.weight = cleanOutput.weight?.replace(/[^0-9.]/g, '');
+     // Example: cleanOutput.amount = cleanOutput.amount?.replace(/[^0-9.]/g, '');
+
+
+     // Ensure shipper and consignee are objects even if empty before returning
      const result = {
-       ...output,
-       shipper: output.shipper ?? {},
-       consignee: output.consignee ?? {},
+       ...cleanOutput,
+       shipper: cleanOutput.shipper ?? {},
+       consignee: cleanOutput.consignee ?? {},
      };
      return result;
   }

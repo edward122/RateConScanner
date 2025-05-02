@@ -1,7 +1,7 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import Image from 'next/image';
 import { extractRateConData, type ExtractRateConDataOutput } from '@/ai/flows/extract-rate-con-data';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Copy, Loader2, GripVertical } from 'lucide-react';
+import { Upload, Copy, Loader2, GripVertical, AlertCircle, FileEdit } from 'lucide-react'; // Assuming FileEdit exists or use an alternative
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 // Define type for individual address components
@@ -47,10 +47,10 @@ const getNestedValue = (obj: any, path: string): string => {
     if (value && typeof value === 'object' && key in value) {
       value = value[key];
     } else {
-      return ''; // Return empty string if path doesn't exist
+      return ''; // Return empty string if path doesn't exist or value isn't object
     }
   }
-  // Ensure return value is a string, handling null/undefined
+  // Ensure return value is a string, handling null/undefined/non-string primitives
   return String(value ?? '');
 };
 
@@ -61,14 +61,15 @@ const setNestedValue = (obj: any, path: string, value: string): any => {
   let current = obj;
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
+    // Ensure parent path exists and is an object
     if (!current[key] || typeof current[key] !== 'object') {
-      current[key] = {}; // Create nested object if it doesn't exist
+      current[key] = {}; // Create nested object if it doesn't exist or isn't an object
     }
     current = current[key];
   }
-  // Handle potential empty string or null/undefined from input
+  // Set the final value, handle empty string -> undefined
   current[keys[keys.length - 1]] = value === '' ? undefined : value;
-  return { ...obj }; // Return a new object copy
+  return { ...obj }; // Return a new object copy for immutability
 };
 
 
@@ -117,6 +118,8 @@ export default function Home() {
   const [fieldOrder, setFieldOrder] = useState<EditableField[]>(defaultFieldOrder);
   const [draggedField, setDraggedField] = useState<EditableField | null>(null);
   const { toast } = useToast();
+  const dragItem = useRef<number | null>(null);
+  const dragOverItem = useRef<number | null>(null);
 
   const handleImageUpload = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -141,29 +144,41 @@ export default function Home() {
         setImageDataUri(dataUri);
         try {
           const result = await extractRateConData({ photoDataUri: dataUri });
-           // Ensure shipper/consignee exist as objects before setting state
-           // Also initialize potentially missing fields within address objects to empty strings for consistent display
-           const initializeAddress = (addr?: Address): Address => ({
-              name: addr?.name ?? '',
-              address: addr?.address ?? '',
-              city: addr?.city ?? '',
-              state: addr?.state ?? '',
-              zipCode: addr?.zipCode ?? '',
+           // Ensure shipper/consignee exist as objects and initialize potentially missing fields
+           // within address objects to empty strings for consistent display.
+            const initializeAddress = (addr?: Partial<Address>): Address => ({
+                name: addr?.name ?? '',
+                address: addr?.address ?? '',
+                city: addr?.city ?? '',
+                state: addr?.state ?? '',
+                zipCode: addr?.zipCode ?? '',
             });
 
-            const initializedResult = {
-              loadNumber: result.loadNumber ?? '',
-              shipper: initializeAddress(result.shipper),
-              consignee: initializeAddress(result.consignee),
-              weight: result.weight ?? '',
-              amount: result.amount ?? '',
-              truckNumber: result.truckNumber ?? '',
+            // Ensure the base result structure before accessing nested properties
+            const safeResult = {
+                ...result,
+                shipper: result.shipper ?? {}, // Ensure shipper is at least an empty object
+                consignee: result.consignee ?? {}, // Ensure consignee is at least an empty object
+            };
+
+            const initializedResult: ExtractRateConDataOutput = {
+                loadNumber: safeResult.loadNumber ?? '',
+                shipper: initializeAddress(safeResult.shipper),
+                consignee: initializeAddress(safeResult.consignee),
+                weight: safeResult.weight ?? '',
+                amount: safeResult.amount ?? '',
+                truckNumber: safeResult.truckNumber ?? '',
             };
           setExtractedData(initializedResult);
           setEditedData(initializedResult); // Initialize edited data
         } catch (err) {
           console.error("Error extracting data:", err);
-          setError("Failed to extract data from the image. Please try again or check the image quality.");
+          setError("Failed to extract data from the image. Please try again, check the image quality, or ensure the document is a standard Rate Confirmation.");
+          toast({
+            title: "Extraction Error",
+            description: "Could not process the document. Please ensure it's a clear Rate Confirmation image.",
+            variant: "destructive",
+          });
           setImageDataUri(null); // Clear preview on error
         } finally {
           setIsLoading(false);
@@ -176,7 +191,7 @@ export default function Home() {
       }
       reader.readAsDataURL(file);
     }
-  }, []);
+  }, [toast]);
 
   const handleEditChange = (field: EditableField, value: string) => {
      setEditedData(prev => {
@@ -212,37 +227,58 @@ export default function Home() {
       });
   };
 
-  const handleDragStart = (field: EditableField) => {
-    setDraggedField(field);
-  };
+   // Drag and Drop Handlers
+   const handleDragStart = (e: React.DragEvent<HTMLTableRowElement>, index: number) => {
+       dragItem.current = index;
+       e.dataTransfer.effectAllowed = 'move';
+       // Optional: Add a class for visual feedback
+       e.currentTarget.classList.add('dragging');
+   };
 
-  const handleDragOver = (event: React.DragEvent<HTMLTableRowElement>) => {
-    event.preventDefault(); // Necessary to allow dropping
-  };
+   const handleDragEnter = (e: React.DragEvent<HTMLTableRowElement>, index: number) => {
+       e.preventDefault(); // Necessary to allow dropping
+       dragOverItem.current = index;
+       // Optional: Add a class for visual feedback
+       // e.currentTarget.classList.add('dragover');
+   };
 
-  const handleDrop = (targetField: EditableField) => {
-    if (!draggedField || draggedField === targetField) {
-        setDraggedField(null);
-        return;
-    }
+   const handleDragOver = (e: React.DragEvent<HTMLTableRowElement>) => {
+       e.preventDefault(); // Necessary to allow dropping
+       e.dataTransfer.dropEffect = 'move';
+   };
 
-    const currentIndex = fieldOrder.indexOf(draggedField);
-    const targetIndex = fieldOrder.indexOf(targetField);
+   const handleDragLeave = (e: React.DragEvent<HTMLTableRowElement>) => {
+       // Optional: Remove visual feedback class
+       // e.currentTarget.classList.remove('dragover');
+   };
 
-    if (currentIndex === -1 || targetIndex === -1) {
-      console.error("Drag/Drop error: Field not found in order.");
-      setDraggedField(null);
-      return;
-    }
+   const handleDrop = (e: React.DragEvent<HTMLTableRowElement>) => {
+       e.preventDefault();
+       if (dragItem.current === null || dragOverItem.current === null || dragItem.current === dragOverItem.current) {
+           dragItem.current = null;
+           dragOverItem.current = null;
+           e.currentTarget.classList.remove('dragging');
+           // e.currentTarget.classList.remove('dragover'); // Ensure dragover is also removed
+           return;
+       }
 
+       const newOrder = [...fieldOrder];
+       const draggedField = newOrder.splice(dragItem.current, 1)[0]; // Remove dragged item
+       newOrder.splice(dragOverItem.current, 0, draggedField); // Insert at target position
 
-    const newOrder = [...fieldOrder];
-    newOrder.splice(currentIndex, 1); // Remove dragged item
-    newOrder.splice(targetIndex, 0, draggedField); // Insert at target position
+       setFieldOrder(newOrder);
 
-    setFieldOrder(newOrder);
-    setDraggedField(null);
-  };
+       // Reset refs and classes
+       dragItem.current = null;
+       dragOverItem.current = null;
+       e.currentTarget.classList.remove('dragging');
+       // e.currentTarget.classList.remove('dragover'); // Ensure dragover is also removed
+
+        // Remove dragging class from all rows just in case
+       const rows = e.currentTarget.parentElement?.querySelectorAll('tr');
+       rows?.forEach(row => row.classList.remove('dragging'));
+   };
+
 
    const orderedEditableData = useMemo(() => {
      if (!editedData) return [];
@@ -288,8 +324,7 @@ export default function Home() {
             )}
             {error && (
                <Alert variant="destructive">
-                 {/* Using AlertCircle for destructive alerts */}
-                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+                 <AlertCircle className="h-4 w-4" /> {/* Use Lucide icon */}
                  <AlertTitle>Error</AlertTitle>
                  <AlertDescription>{error}</AlertDescription>
                </Alert>
@@ -301,8 +336,8 @@ export default function Home() {
                   <Image
                     src={imageDataUri}
                     alt="Uploaded Rate Con"
-                    layout="fill"
-                    objectFit="contain"
+                    fill={true} // Use fill instead of layout="fill"
+                    style={{objectFit:"contain"}} // Use style for objectFit
                     data-ai-hint="document scan rate confirmation"
                   />
                 </div>
@@ -315,7 +350,7 @@ export default function Home() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              {/* Using a generic Edit icon as FileEdit is not in lucide */}
+              {/* Placeholder Icon for FileEdit if not available */}
                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                Extracted Data & Field Order
             </CardTitle>
@@ -334,28 +369,29 @@ export default function Home() {
                        </TableRow>
                      </TableHeader>
                      <TableBody>
-                       {orderedEditableData.map(({ field, value }) => (
+                      {orderedEditableData.map(({ field, value }, index) => (
                          <TableRow
                            key={field}
                            draggable
-                           onDragStart={() => handleDragStart(field)}
+                           onDragStart={(e) => handleDragStart(e, index)}
+                           onDragEnter={(e) => handleDragEnter(e, index)}
                            onDragOver={handleDragOver}
-                           onDrop={() => handleDrop(field)}
-                           className={`cursor-move ${draggedField === field ? 'opacity-50 bg-accent/20' : ''}`}
+                           onDragLeave={handleDragLeave}
+                           onDrop={handleDrop}
+                           className={`cursor-move hover:bg-muted/70 ${dragItem.current === index ? 'opacity-50 bg-accent/20' : ''}`} // Improved visual feedback
                          >
-                           <TableCell className="cursor-grab active:cursor-grabbing p-2 w-10">
-                             <GripVertical className="w-4 h-4 text-muted-foreground" />
+                           <TableCell className="cursor-grab active:cursor-grabbing p-2 w-10 touch-none"> {/* Added touch-none */}
+                             <GripVertical className="w-4 h-4 text-muted-foreground pointer-events-none" /> {/* Added pointer-events-none */}
                            </TableCell>
                            <TableCell className="font-medium w-1/3 p-2">
-                             {/* Use the flat field name for the label ID */}
                              <Label htmlFor={field.replace('.', '-')}>{fieldLabels[field]}</Label>
                            </TableCell>
                            <TableCell className="w-2/3 p-2">
                              <Input
-                               id={field.replace('.', '-')} // Ensure ID is valid HTML
+                               id={field.replace('.', '-')}
                                value={value}
                                onChange={(e) => handleEditChange(field, e.target.value)}
-                               className="text-sm h-8" // Adjusted height
+                               className="text-sm h-8"
                                aria-label={`Edit ${fieldLabels[field]}`}
                              />
                            </TableCell>
@@ -376,8 +412,19 @@ export default function Home() {
           </CardContent>
         </Card>
       </div>
+       <style jsx global>{`
+         .dragging {
+           opacity: 0.5;
+           background-color: hsl(var(--accent) / 0.2); /* Use theme variable */
+         }
+         .dragover {
+            /* Optional: Add styles for the element being dragged over */
+            /* Example: border-top: 2px solid hsl(var(--primary)); */
+         }
+         tr.dragging td {
+            /* Optional: Style cells within the dragging row */
+         }
+       `}</style>
     </div>
   );
 }
-
-    
