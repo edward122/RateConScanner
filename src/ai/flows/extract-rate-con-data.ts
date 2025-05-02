@@ -4,7 +4,7 @@
  *
  * - extractRateConData - A function that takes an image of a Rate Con document and returns the extracted data.
  * - ExtractRateConDataInput - The input type for the extractRateConData function, which is an image data URI.
- * - ExtractRateConDataOutput - The output type for the extractRateConData function, which contains the extracted fields.
+ * - ExtractRateConDataOutput - The output type for the extractRateConData function, which contains the extracted fields including structured addresses.
  */
 
 import {ai} from '@/ai/ai-instance';
@@ -19,12 +19,22 @@ const ExtractRateConDataInputSchema = z.object({
 });
 export type ExtractRateConDataInput = z.infer<typeof ExtractRateConDataInputSchema>;
 
+// Define a reusable schema for address components
+const AddressSchema = z.object({
+  name: z.string().optional().describe('The name of the company or location.'),
+  address: z.string().optional().describe('The street address.'),
+  city: z.string().optional().describe('The city.'),
+  state: z.string().optional().describe('The state or province abbreviation (e.g., CA, TX).'),
+  zipCode: z.string().optional().describe('The postal or ZIP code.'),
+}).describe('Structured address information.');
+
+
 const ExtractRateConDataOutputSchema = z.object({
-  loadNumber: z.string().describe('The load number from the Rate Con document.'),
-  shipper: z.string().describe('The shipper from the Rate Con document.'),
-  consignee: z.string().describe('The consignee from the Rate Con document.'),
-  weight: z.string().describe('The weight from the Rate Con document.'),
-  amount: z.string().describe('The amount from the Rate Con document.'),
+  loadNumber: z.string().optional().describe('The load number from the Rate Con document.'),
+  shipper: AddressSchema.optional().describe('The structured address information for the shipper.'),
+  consignee: AddressSchema.optional().describe('The structured address information for the consignee.'),
+  weight: z.string().optional().describe('The weight from the Rate Con document.'),
+  amount: z.string().optional().describe('The amount from the Rate Con document.'),
   truckNumber: z.string().optional().describe('The truck number from the Rate Con document, if available. Often found near the top middle of the document.'),
 });
 export type ExtractRateConDataOutput = z.infer<typeof ExtractRateConDataOutputSchema>;
@@ -36,7 +46,7 @@ export async function extractRateConData(input: ExtractRateConDataInput): Promis
 const extractRateConDataPrompt = ai.definePrompt({
   name: 'extractRateConDataPrompt',
   input: {
-    schema: ExtractRateConDataInputSchema, // Input is now the image data URI
+    schema: ExtractRateConDataInputSchema, // Input is the image data URI
   },
   output: {
     schema: ExtractRateConDataOutputSchema,
@@ -46,15 +56,18 @@ const extractRateConDataPrompt = ai.definePrompt({
   Analyze the provided image of a Rate Con document and extract the following fields:
 
   - Load Number
-  - Shipper
-  - Consignee
+  - Shipper (Extract Name, Address, City, State, and Zip Code separately)
+  - Consignee (Extract Name, Address, City, State, and Zip Code separately)
   - Weight
   - Amount
   - Truck Number (if available - note: this is often located near the top middle of the document)
 
   Image: {{media url=photoDataUri}}
 
-  Return the extracted data in JSON format. If a field is not clearly visible or identifiable in the image, leave it blank or as an empty string. Do not add any additional text to the output. Make sure the outputted JSON is parseable. Be as accurate as possible based on the image content.
+  Return the extracted data in JSON format according to the specified output schema.
+  For Shipper and Consignee, provide the information as a nested JSON object with fields: name, address, city, state, zipCode.
+  If any specific field (like load number, weight, amount, truck number, or any address component) is not clearly visible or identifiable in the image, return null or an empty string for that specific field. Do not make up information.
+  Do not add any additional text to the output. Make sure the outputted JSON is parseable and strictly adheres to the schema. Be as accurate as possible based on the image content.
   `,
 });
 
@@ -74,6 +87,12 @@ const extractRateConDataFlow = ai.defineFlow<
     if (!output) {
       throw new Error("Failed to generate output from the prompt.");
     }
-    return output;
+    // Ensure shipper and consignee are objects even if empty
+     const result = {
+       ...output,
+       shipper: output.shipper ?? {},
+       consignee: output.consignee ?? {},
+     };
+     return result;
   }
 );

@@ -10,22 +10,97 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Copy, Edit, Loader2, GripVertical } from 'lucide-react';
+import { Upload, Copy, Loader2, GripVertical } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-type EditableField = keyof ExtractRateConDataOutput;
+// Define type for individual address components
+type Address = {
+  name?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+};
+
+// Flattened type for editing and ordering
+type EditableField =
+  | 'loadNumber'
+  | 'shipper.name'
+  | 'shipper.address'
+  | 'shipper.city'
+  | 'shipper.state'
+  | 'shipper.zipCode'
+  | 'consignee.name'
+  | 'consignee.address'
+  | 'consignee.city'
+  | 'consignee.state'
+  | 'consignee.zipCode'
+  | 'weight'
+  | 'amount'
+  | 'truckNumber';
+
+// Helper function to get nested value
+const getNestedValue = (obj: any, path: string): string => {
+  const keys = path.split('.');
+  let value = obj;
+  for (const key of keys) {
+    if (value && typeof value === 'object' && key in value) {
+      value = value[key];
+    } else {
+      return ''; // Return empty string if path doesn't exist
+    }
+  }
+  // Ensure return value is a string, handling null/undefined
+  return String(value ?? '');
+};
+
+
+// Helper function to set nested value
+const setNestedValue = (obj: any, path: string, value: string): any => {
+  const keys = path.split('.');
+  let current = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i];
+    if (!current[key] || typeof current[key] !== 'object') {
+      current[key] = {}; // Create nested object if it doesn't exist
+    }
+    current = current[key];
+  }
+  // Handle potential empty string or null/undefined from input
+  current[keys[keys.length - 1]] = value === '' ? undefined : value;
+  return { ...obj }; // Return a new object copy
+};
+
+
 const defaultFieldOrder: EditableField[] = [
   'loadNumber',
-  'shipper',
-  'consignee',
+  'shipper.name',
+  'shipper.address',
+  'shipper.city',
+  'shipper.state',
+  'shipper.zipCode',
+  'consignee.name',
+  'consignee.address',
+  'consignee.city',
+  'consignee.state',
+  'consignee.zipCode',
   'weight',
   'amount',
   'truckNumber',
 ];
+
 const fieldLabels: Record<EditableField, string> = {
   loadNumber: 'Load #',
-  shipper: 'Shipper',
-  consignee: 'Consignee',
+  'shipper.name': 'Shipper Name',
+  'shipper.address': 'Shipper Address',
+  'shipper.city': 'Shipper City',
+  'shipper.state': 'Shipper State',
+  'shipper.zipCode': 'Shipper Zip',
+  'consignee.name': 'Consignee Name',
+  'consignee.address': 'Consignee Address',
+  'consignee.city': 'Consignee City',
+  'consignee.state': 'Consignee State',
+  'consignee.zipCode': 'Consignee Zip',
   weight: 'Weight',
   amount: 'Amount',
   truckNumber: 'Truck #',
@@ -33,7 +108,9 @@ const fieldLabels: Record<EditableField, string> = {
 
 export default function Home() {
   const [imageDataUri, setImageDataUri] = useState<string | null>(null);
+  // Store the raw, nested data structure from AI
   const [extractedData, setExtractedData] = useState<ExtractRateConDataOutput | null>(null);
+  // Store the potentially edited, nested data structure
   const [editedData, setEditedData] = useState<ExtractRateConDataOutput | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +125,15 @@ export default function Home() {
       setError(null);
       setExtractedData(null);
       setEditedData(null);
+      setImageDataUri(null); // Reset image preview
+
+      // Basic file type validation
+      const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf'];
+       if (!allowedTypes.includes(file.type)) {
+         setError('Invalid file type. Please upload PNG, JPG, JPEG, or PDF.');
+         setIsLoading(false);
+         return;
+       }
 
       const reader = new FileReader();
       reader.onloadend = async () => {
@@ -55,12 +141,30 @@ export default function Home() {
         setImageDataUri(dataUri);
         try {
           const result = await extractRateConData({ photoDataUri: dataUri });
-          setExtractedData(result);
-          setEditedData(result); // Initialize edited data with extracted data
+           // Ensure shipper/consignee exist as objects before setting state
+           // Also initialize potentially missing fields within address objects to empty strings for consistent display
+           const initializeAddress = (addr?: Address): Address => ({
+              name: addr?.name ?? '',
+              address: addr?.address ?? '',
+              city: addr?.city ?? '',
+              state: addr?.state ?? '',
+              zipCode: addr?.zipCode ?? '',
+            });
+
+            const initializedResult = {
+              loadNumber: result.loadNumber ?? '',
+              shipper: initializeAddress(result.shipper),
+              consignee: initializeAddress(result.consignee),
+              weight: result.weight ?? '',
+              amount: result.amount ?? '',
+              truckNumber: result.truckNumber ?? '',
+            };
+          setExtractedData(initializedResult);
+          setEditedData(initializedResult); // Initialize edited data
         } catch (err) {
           console.error("Error extracting data:", err);
           setError("Failed to extract data from the image. Please try again or check the image quality.");
-          setImageDataUri(null);
+          setImageDataUri(null); // Clear preview on error
         } finally {
           setIsLoading(false);
         }
@@ -75,14 +179,21 @@ export default function Home() {
   }, []);
 
   const handleEditChange = (field: EditableField, value: string) => {
-    setEditedData(prev => prev ? { ...prev, [field]: value } : null);
-  };
+     setEditedData(prev => {
+       if (!prev) return null;
+       // Use the helper function to update the nested state immutably
+       return setNestedValue(prev, field, value);
+     });
+   };
 
   const handleCopyToClipboard = () => {
     if (!editedData) return;
 
-    const orderedData = fieldOrder.map(field => editedData[field] ?? '');
-    const tabSeparatedString = orderedData.join('\t');
+     // Get the values from the editedData based on the current fieldOrder
+     // Use the helper to safely access nested values, defaulting to empty string
+     const orderedData = fieldOrder.map(field => getNestedValue(editedData, field));
+     const tabSeparatedString = orderedData.join('\t');
+
 
     navigator.clipboard.writeText(tabSeparatedString)
       .then(() => {
@@ -118,6 +229,13 @@ export default function Home() {
     const currentIndex = fieldOrder.indexOf(draggedField);
     const targetIndex = fieldOrder.indexOf(targetField);
 
+    if (currentIndex === -1 || targetIndex === -1) {
+      console.error("Drag/Drop error: Field not found in order.");
+      setDraggedField(null);
+      return;
+    }
+
+
     const newOrder = [...fieldOrder];
     newOrder.splice(currentIndex, 1); // Remove dragged item
     newOrder.splice(targetIndex, 0, draggedField); // Insert at target position
@@ -126,10 +244,16 @@ export default function Home() {
     setDraggedField(null);
   };
 
-  const orderedEditableData = useMemo(() => {
-    if (!editedData) return [];
-    return fieldOrder.map(field => ({ field, value: editedData[field] ?? '' }));
-  }, [editedData, fieldOrder]);
+   const orderedEditableData = useMemo(() => {
+     if (!editedData) return [];
+     // Map the ordered fields to their values from the nested editedData
+     // Use the helper to safely access nested values, defaulting to empty string
+     return fieldOrder.map(field => ({
+       field,
+       value: getNestedValue(editedData, field)
+     }));
+   }, [editedData, fieldOrder]);
+
 
   return (
     <div className="min-h-screen p-4 md:p-8 bg-background text-foreground">
@@ -164,8 +288,9 @@ export default function Home() {
             )}
             {error && (
                <Alert variant="destructive">
-                 <Upload className="h-4 w-4" />
-                 <AlertTitle>Extraction Error</AlertTitle>
+                 {/* Using AlertCircle for destructive alerts */}
+                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+                 <AlertTitle>Error</AlertTitle>
                  <AlertDescription>{error}</AlertDescription>
                </Alert>
              )}
@@ -190,7 +315,9 @@ export default function Home() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Edit className="w-5 h-5 text-primary" /> Extracted Data & Field Order
+              {/* Using a generic Edit icon as FileEdit is not in lucide */}
+               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+               Extracted Data & Field Order
             </CardTitle>
             <CardDescription>Review, edit, and reorder the extracted fields for macro pasting.</CardDescription>
           </CardHeader>
@@ -216,18 +343,19 @@ export default function Home() {
                            onDrop={() => handleDrop(field)}
                            className={`cursor-move ${draggedField === field ? 'opacity-50 bg-accent/20' : ''}`}
                          >
-                           <TableCell className="cursor-grab active:cursor-grabbing">
+                           <TableCell className="cursor-grab active:cursor-grabbing p-2 w-10">
                              <GripVertical className="w-4 h-4 text-muted-foreground" />
                            </TableCell>
-                           <TableCell className="font-medium w-1/3">
-                             <Label htmlFor={field}>{fieldLabels[field]}</Label>
+                           <TableCell className="font-medium w-1/3 p-2">
+                             {/* Use the flat field name for the label ID */}
+                             <Label htmlFor={field.replace('.', '-')}>{fieldLabels[field]}</Label>
                            </TableCell>
-                           <TableCell className="w-2/3">
+                           <TableCell className="w-2/3 p-2">
                              <Input
-                               id={field}
+                               id={field.replace('.', '-')} // Ensure ID is valid HTML
                                value={value}
                                onChange={(e) => handleEditChange(field, e.target.value)}
-                               className="text-sm"
+                               className="text-sm h-8" // Adjusted height
                                aria-label={`Edit ${fieldLabels[field]}`}
                              />
                            </TableCell>
@@ -251,3 +379,5 @@ export default function Home() {
     </div>
   );
 }
+
+    
