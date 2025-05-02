@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Copy, Loader2, GripVertical, AlertCircle, FileEdit } from 'lucide-react'; // Assuming FileEdit exists or use an alternative
+import { Upload, Copy, Loader2, GripVertical, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 // Define type for individual address components
@@ -121,14 +121,15 @@ export default function Home() {
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
 
-  // Helper to initialize address objects safely
-  const initializeAddress = (addr?: Partial<Address>): Address => ({
-      name: addr?.name ?? '',
-      address: addr?.address ?? '',
-      city: addr?.city ?? '',
-      state: addr?.state ?? '',
-      zipCode: addr?.zipCode ?? '',
-  });
+   // Helper to initialize address objects safely
+   const initializeAddress = (addr?: Partial<Address>): Address => ({
+       name: addr?.name ?? '',
+       address: addr?.address ?? '',
+       city: addr?.city ?? '',
+       state: addr?.state ?? '',
+       zipCode: addr?.zipCode ?? '',
+   });
+
 
   const handleImageUpload = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -140,12 +141,13 @@ export default function Home() {
       setImageDataUri(null); // Reset image preview
 
       // Basic file type validation
-      const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf'];
-       if (!allowedTypes.includes(file.type)) {
-         setError('Invalid file type. Please upload PNG, JPG, JPEG, or PDF.');
-         setIsLoading(false);
-         return;
-       }
+       const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf'];
+        if (!allowedTypes.includes(file.type)) {
+          setError('Invalid file type. Please upload PNG, JPG, JPEG, or PDF.');
+          setIsLoading(false);
+          return;
+        }
+
 
       const reader = new FileReader();
       reader.onloadend = async () => {
@@ -159,15 +161,16 @@ export default function Home() {
             // and then initialize the address fields within them.
             const initializedResult: ExtractRateConDataOutput = {
                 loadNumber: result?.loadNumber ?? '',
-                // Ensure shipper/consignee exist before initializing their internal fields
-                shipper: initializeAddress(result?.shipper ?? {}),
-                consignee: initializeAddress(result?.consignee ?? {}),
-                weight: result?.weight ?? '',
-                amount: result?.amount ?? '',
-                truckNumber: result?.truckNumber ?? '',
-            };
+                 // Ensure shipper/consignee exist before initializing their internal fields
+                 shipper: initializeAddress(result?.shipper ?? {}),
+                 consignee: initializeAddress(result?.consignee ?? {}),
+                 weight: result?.weight ?? '',
+                 amount: result?.amount ?? '',
+                 truckNumber: result?.truckNumber ?? '',
+             };
 
-            console.log("Initialized Frontend Data:", initializedResult); // Log initialized data
+             console.log("Initialized Frontend Data:", initializedResult); // Log initialized data
+
 
           setExtractedData(initializedResult);
           setEditedData(initializedResult); // Initialize edited data with the safe, initialized structure
@@ -191,7 +194,8 @@ export default function Home() {
       }
       reader.readAsDataURL(file);
     }
-  }, [toast]); // Removed initializeAddress from deps as it's defined outside useCallback scope now
+  }, [toast, initializeAddress]); // Added initializeAddress to deps
+
 
   const handleEditChange = (field: EditableField, value: string) => {
      setEditedData(prev => {
@@ -200,6 +204,7 @@ export default function Home() {
        return setNestedValue(prev, field, value);
      });
    };
+
 
   const handleCopyToClipboard = () => {
     if (!editedData) return;
@@ -347,7 +352,7 @@ export default function Home() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              {/* Placeholder Icon for FileEdit if not available */}
+              {/* Placeholder Icon for FileEdit */}
                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                Extracted Data & Field Order
             </CardTitle>
