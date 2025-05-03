@@ -20,6 +20,7 @@ type Address = {
   city?: string;
   state?: string;
   zipCode?: string;
+  phone?: string;
 };
 
 // Flattened type for editing and ordering
@@ -30,11 +31,13 @@ type EditableField =
   | 'shipper.city'
   | 'shipper.state'
   | 'shipper.zipCode'
+  | 'shipper.phone'
   | 'consignee.name'
   | 'consignee.address'
   | 'consignee.city'
   | 'consignee.state'
   | 'consignee.zipCode'
+  | 'consignee.phone'
   | 'weight'
   | 'amount'
   | 'truckNumber';
@@ -80,11 +83,13 @@ const defaultFieldOrder: EditableField[] = [
   'shipper.city',
   'shipper.state',
   'shipper.zipCode',
+  'shipper.phone',
   'consignee.name',
   'consignee.address',
   'consignee.city',
   'consignee.state',
   'consignee.zipCode',
+  'consignee.phone',
   'weight',
   'amount',
   'truckNumber',
@@ -97,11 +102,13 @@ const fieldLabels: Record<EditableField, string> = {
   'shipper.city': 'Shipper City',
   'shipper.state': 'Shipper State',
   'shipper.zipCode': 'Shipper Zip',
+  'shipper.phone': 'Shipper Phone',
   'consignee.name': 'Consignee Name',
   'consignee.address': 'Consignee Address',
   'consignee.city': 'Consignee City',
   'consignee.state': 'Consignee State',
   'consignee.zipCode': 'Consignee Zip',
+  'consignee.phone': 'Consignee Phone',
   weight: 'Weight',
   amount: 'Amount',
   truckNumber: 'Truck #',
@@ -128,6 +135,7 @@ export default function Home() {
        city: addr?.city ?? '',
        state: addr?.state ?? '',
        zipCode: addr?.zipCode ?? '',
+       phone: addr?.phone ?? '',
    });
 
 
@@ -296,7 +304,7 @@ export default function Home() {
   return (
     <div className="min-h-screen p-4 md:p-8 bg-background text-foreground">
       <header className="mb-8">
-        <h1 className="text-3xl font-bold text-primary">RateCon TurboScan</h1>
+        <h1 className="text-3xl font-bold text-primary">Ratecon Scanner</h1> {/* Changed title here */}
         <p className="text-muted-foreground">Upload Rate Con documents, extract data, and prepare for macro input.</p>
       </header>
 

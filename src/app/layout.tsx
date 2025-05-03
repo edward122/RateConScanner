@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'RateCon TurboScan',
+  title: 'Ratecon Scanner', // Changed title here
   description: 'Intelligent Document Scanner & Data Transfer Tool for Load Confirmation Forms',
 };
 

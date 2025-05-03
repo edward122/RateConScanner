@@ -25,7 +25,7 @@ const AddressSchema = z.object({
   address: z.string().optional().describe('The street address line (e.g., "123 Main St", "456 Industrial Ave Suite 100").'),
   city: z.string().optional().describe('The city name (e.g., "Anytown").'),
   state: z.string().optional().describe('The 2-letter state or province abbreviation (e.g., "CA", "TX", "ON").'),
-  zipCode: z.string().optional().describe('The postal or ZIP code (e.g., "90210", "10001-1234").'),
+  zipCode: z.string().optional().describe('The postal or ZIP code (e.g., "90210", "10001-1234"). must only be 5 numbers'),
 }).describe('Structured address information. Each field must contain ONLY the corresponding part of the address. Leave fields blank if not found.');
 
 
@@ -33,9 +33,9 @@ const ExtractRateConDataOutputSchema = z.object({
   loadNumber: z.string().optional().describe('The load number or PRO number from the Rate Con document.'),
   shipper: AddressSchema.optional().describe('The structured address information for the shipper. Leave fields blank if not found.'),
   consignee: AddressSchema.optional().describe('The structured address information for the consignee. Leave fields blank if not found.'),
-  weight: z.string().optional().describe('The weight from the Rate Con document.'),
+  weight: z.string().optional().describe('The weight from the Rate Con document. (only include numbers)'),
   amount: z.string().optional().describe('The total linehaul amount/rate from the Rate Con document.'),
-  truckNumber: z.string().optional().describe('The truck number from the Rate Con document, if available. Often found near the top middle of the document.'),
+  truckNumber: z.string().optional().describe('is handwritten near the top or header (Leave fields blank if not readibly)'),
 });
 export type ExtractRateConDataOutput = z.infer<typeof ExtractRateConDataOutputSchema>;
 
