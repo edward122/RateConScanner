@@ -39,9 +39,17 @@ const ExtractRateConDataOutputSchema = z.object({
 });
 export type ExtractRateConDataOutput = z.infer<typeof ExtractRateConDataOutputSchema>;
 
+export type ExtractRateConDataMultiInput = { photoDataUris: string[] };
+export type ExtractRateConDataMultiOutput = ExtractRateConDataOutput[];
 
-export async function extractRateConData(input: ExtractRateConDataInput): Promise<ExtractRateConDataOutput> {
-  return extractRateConDataFlow(input);
+export async function extractRateConData({ photoDataUris }: ExtractRateConDataMultiInput): Promise<ExtractRateConDataMultiOutput> {
+  // Process each page with the existing extraction logic
+  const results: ExtractRateConDataOutput[] = [];
+  for (const uri of photoDataUris) {
+    const singleResult = await extractRateConDataFlow({ photoDataUri: uri });
+    results.push(singleResult);
+  }
+  return results;
 }
 
 const extractRateConDataPrompt = ai.definePrompt({
