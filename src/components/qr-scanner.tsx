@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect } from "react"
 import { BrowserQRCodeReader, IScannerControls } from "@zxing/browser"
-import { Result, Exception } from "@zxing/library"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -39,11 +38,14 @@ export function QRScanner({ className, onScan }: QRScannerProps) {
       const controls = await codeReader.decodeFromVideoDevice(
         videoInputDevices[0].deviceId,
         videoRef.current!,
-        (result: Result | undefined) => {
+        (result, error) => {
           if (result) {
             onScan(result.getText())
             setIsScanning(false)
             controls.stop()
+          }
+          if (error) {
+            console.error(error)
           }
         }
       )
