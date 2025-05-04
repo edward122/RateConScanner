@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useToast } from "@/hooks/use-toast";
 import { Upload, Copy, Loader2, GripVertical, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { QRDisplay } from "@/components/qr-display"
 
 // Define type for individual address components
 type Address = {
@@ -403,6 +404,9 @@ export default function Home() {
           <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto mt-2 text-center">Instantly extract and process data from your Rate Con documents using advanced AI technology</p>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+          {/* QR Code Display (left side) */}
+          <QRDisplay className="animate-fadein" />
+
           {/* Upload Area (with image preview after upload) */}
           <Card className="glass hover-lift animate-fadein">
           <CardHeader>
