@@ -10,12 +10,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Copy, Loader2, GripVertical, AlertCircle, QrCode } from 'lucide-react';
+import { Upload, Copy, Loader2, GripVertical, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { QRDisplay } from "@/components/qr-display"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { ref as dbRef, onValue, push, set, onDisconnect } from 'firebase/database';
-import { db } from '@/lib/firebase';
 
 // Define type for individual address components
 type Address = {
@@ -157,13 +154,6 @@ export default function Home() {
   }[]>([]);
   const [selectedImageIdx, setSelectedImageIdx] = useState(0);
   const [dataUris, setDataUris] = useState<string[]>([]);
-  const [qrPopoverOpen, setQrPopoverOpen] = useState(false);
-  const [sessionId, setSessionId] = useState<string>("");
-  const [lastMobileMessage, setLastMobileMessage] = useState<string | null>(null);
-  const [mobilePhotos, setMobilePhotos] = useState<string[]>([]);
-  const [isProcessingMobilePhotos, setIsProcessingMobilePhotos] = useState(false);
-  const [rateCons, setRateCons] = useState<any[]>([]);
-  const [selectedRateConIdx, setSelectedRateConIdx] = useState(0);
 
   const handleEditChange = (field: EditableField, value: string) => {
     setExtractedData(prev => {
@@ -321,9 +311,22 @@ export default function Home() {
     setIsDragging(false);
   };
 
-  const processPhotoDataUris = async (dataUris: string[]) => {
+  // Multi-file upload handler
+  const handleFilesChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || []);
+    setFiles(selectedFiles);
+    if (selectedFiles.length === 0) return;
     setIsProcessing(true);
     try {
+      // Read all files as data URIs
+      const dataUris = await Promise.all(selectedFiles.map(file => {
+        return new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = event => resolve(event.target?.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }));
       setImageDataUri(dataUris[0]);
       setSelectedImageIdx(0);
       setDataUris(dataUris);
@@ -367,97 +370,6 @@ export default function Home() {
     }
   };
 
-  const handleFilesChange = async (e: ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(e.target.files || []);
-    setFiles(selectedFiles);
-    if (selectedFiles.length === 0) return;
-    // Read all files as data URIs
-    const dataUris = await Promise.all(selectedFiles.map(file => {
-      return new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = event => resolve(event.target?.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-    }));
-    processPhotoDataUris(dataUris);
-  };
-
-  // Generate session id on mount
-  useEffect(() => {
-    if (!sessionId) {
-      const id = Math.random().toString(36).substring(2, 15);
-      setSessionId(id);
-    }
-  }, [sessionId]);
-
-  // Listen for messages from mobile
-  useEffect(() => {
-    if (!sessionId) return;
-    const sessionRef = dbRef(db, `/sessions/${sessionId}/messages`);
-    const unsubscribe = onValue(sessionRef, (snapshot) => {
-      const messages = snapshot.val();
-      if (messages) {
-        const last = Object.values(messages).pop() as any;
-        if (last?.from === 'mobile') setLastMobileMessage(last.text || null);
-      }
-    });
-    return () => unsubscribe();
-  }, [sessionId]);
-
-  // Send a message to mobile
-  const sendMessageToMobile = async (text: string) => {
-    if (!sessionId) return;
-    const sessionRef = dbRef(db, `/sessions/${sessionId}/messages`);
-    await push(sessionRef, { text, from: 'desktop', ts: Date.now() });
-  };
-
-  // Listen for new photos from mobile
-  useEffect(() => {
-    if (!sessionId) return;
-    const photosRef = dbRef(db, `/sessions/${sessionId}/photos`);
-    const unsubscribe = onValue(photosRef, (snapshot) => {
-      const photos = snapshot.val();
-      if (photos) {
-        const photoList = Object.values(photos).map((p: any) => p.dataUrl).filter(Boolean);
-        if (photoList.length > 0) {
-          processPhotoDataUris(photoList);
-        }
-      }
-    });
-    return () => unsubscribe();
-  }, [sessionId]);
-
-  // Listen for new ratecons from mobile or uploads
-  useEffect(() => {
-    if (!sessionId) return;
-    const rateConsRef = dbRef(db, `/sessions/${sessionId}/ratecons`);
-    const unsubscribe = onValue(rateConsRef, (snapshot) => {
-      const val = snapshot.val();
-      if (val) {
-        // Convert to array with id
-        const arr = Object.entries(val).map(([id, data]: any) => ({ id, ...data }));
-        // Sort by createdAt
-        arr.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-        setRateCons(arr);
-        // If new, select the latest
-        setSelectedRateConIdx(arr.length - 1);
-      } else {
-        setRateCons([]);
-        setSelectedRateConIdx(0);
-      }
-    });
-    return () => unsubscribe();
-  }, [sessionId]);
-
-  // When selectedRateConIdx or rateCons changes, process that ratecon's photos
-  useEffect(() => {
-    if (!rateCons.length) return;
-    const rc = rateCons[selectedRateConIdx];
-    if (!rc || !rc.photos || !rc.photos.length) return;
-    processPhotoDataUris(rc.photos);
-  }, [rateCons, selectedRateConIdx]);
-
   useEffect(() => {
     if (isModalOpen) {
       document.body.style.overflow = 'hidden';
@@ -467,33 +379,8 @@ export default function Home() {
     return () => { document.body.style.overflow = ''; };
   }, [isModalOpen]);
 
-  // Remove session from Firebase when desktop disconnects
-  useEffect(() => {
-    if (!sessionId) return;
-    const sessionRef = dbRef(db, `/sessions/${sessionId}`);
-    onDisconnect(sessionRef).remove();
-  }, [sessionId]);
-
   return (
     <main className={"min-h-screen bg-gradient-to-b from-background to-secondary/20 transition-colors duration-500 " + (darkMode ? 'dark' : '')}>
-      {/* Remove the barcode Connect Your Phone button, only keep the popover QR code button */}
-      <div className="fixed top-2 left-2 z-50">
-        <Popover open={qrPopoverOpen} onOpenChange={setQrPopoverOpen}>
-          <PopoverTrigger asChild>
-            <button
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/80 dark:bg-black/60 shadow border border-border text-sm font-semibold hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors"
-              onMouseEnter={() => setQrPopoverOpen(true)}
-              onMouseLeave={() => setQrPopoverOpen(false)}
-            >
-              <QrCode className="w-5 h-5 text-blue-600 dark:text-blue-300" />
-              Connect Your Phone?
-            </button>
-          </PopoverTrigger>
-          <PopoverContent className="p-0 w-auto bg-transparent border-none shadow-none">
-            <QRDisplay className="w-72" sessionId={sessionId} />
-          </PopoverContent>
-        </Popover>
-      </div>
       {/* Dark mode toggle */}
       <button
         className="fixed top-4 right-4 z-50 p-2 rounded-full bg-white/80 dark:bg-black/60 shadow-lg border border-border hover:scale-110 transition-transform"
@@ -517,6 +404,9 @@ export default function Home() {
           <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto mt-2 text-center">Instantly extract and process data from your Rate Con documents using advanced AI technology</p>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+          {/* QR Code Display (left side) */}
+          <QRDisplay className="animate-fadein" />
+
           {/* Upload Area (with image preview after upload) */}
           <Card className="glass hover-lift animate-fadein">
           <CardHeader>
@@ -668,15 +558,7 @@ export default function Home() {
 
           {/* Extracted Data (right side) */}
           <div className="relative animate-fadein">
-            {isProcessingMobilePhotos && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-                <div className="bg-white dark:bg-black rounded-lg p-8 flex flex-col items-center gap-4 shadow-lg">
-                  <Loader2 className="w-12 h-12 animate-spin text-primary" />
-                  <div className="text-lg font-semibold">Processing mobile photos...</div>
-                </div>
-              </div>
-            )}
-            {extractedData && !isProcessingMobilePhotos && (
+            {(isProcessing || (extractedData && !isProcessing)) && (
               <Card className="glass hover-lift">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <div>
@@ -691,105 +573,220 @@ export default function Home() {
                   >
                     <Copy className="w-4 h-4" />
                   </Button>
-                </CardHeader>
+          </CardHeader>
                 <CardContent>
                   <div className="space-y-6">
-                    {/* Render the current extracted result */}
-                    {(() => {
-                      return (
-                        <>
-                          {/* Row 1: Load # and Weight */}
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="loadNumber" className="text-sm font-medium">Load #</Label>
-                              <Input id="loadNumber" value={getNestedValue(extractedData, 'loadNumber')} onChange={(e) => handleEditChange('loadNumber', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="weight" className="text-sm font-medium">Weight</Label>
-                              <Input id="weight" value={getNestedValue(extractedData, 'weight')} onChange={(e) => handleEditChange('weight', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                            </div>
-                          </div>
-                          {/* Row 2: Shipper Name and Consignee Name */}
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="shipper.name" className="text-sm font-medium">Shipper Name</Label>
-                              <Input id="shipper.name" value={getNestedValue(extractedData, 'shipper.name')} onChange={(e) => handleEditChange('shipper.name', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="consignee.name" className="text-sm font-medium">Consignee Name</Label>
-                              <Input id="consignee.name" value={getNestedValue(extractedData, 'consignee.name')} onChange={(e) => handleEditChange('consignee.name', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                            </div>
-                          </div>
-                          {/* Row 3: Addresses */}
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="shipper.address" className="text-sm font-medium">Shipper Address</Label>
-                              <Input id="shipper.address" value={getNestedValue(extractedData, 'shipper.address')} onChange={(e) => handleEditChange('shipper.address', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="consignee.address" className="text-sm font-medium">Consignee Address</Label>
-                              <Input id="consignee.address" value={getNestedValue(extractedData, 'consignee.address')} onChange={(e) => handleEditChange('consignee.address', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                            </div>
-                          </div>
-                          {/* Row 4: City, State, Zip */}
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="grid grid-cols-3 gap-2">
-                              <div className="space-y-2">
-                                <Label htmlFor="shipper.city" className="text-sm font-medium">City</Label>
-                                <Input id="shipper.city" value={getNestedValue(extractedData, 'shipper.city')} onChange={(e) => handleEditChange('shipper.city', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                              </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="shipper.state" className="text-sm font-medium">State</Label>
-                                <Input id="shipper.state" value={getNestedValue(extractedData, 'shipper.state')} onChange={(e) => handleEditChange('shipper.state', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                              </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="shipper.zipCode" className="text-sm font-medium">ZIP</Label>
-                                <Input id="shipper.zipCode" value={getNestedValue(extractedData, 'shipper.zipCode')} onChange={(e) => handleEditChange('shipper.zipCode', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-3 gap-2">
-                              <div className="space-y-2">
-                                <Label htmlFor="consignee.city" className="text-sm font-medium">City</Label>
-                                <Input id="consignee.city" value={getNestedValue(extractedData, 'consignee.city')} onChange={(e) => handleEditChange('consignee.city', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                              </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="consignee.state" className="text-sm font-medium">State</Label>
-                                <Input id="consignee.state" value={getNestedValue(extractedData, 'consignee.state')} onChange={(e) => handleEditChange('consignee.state', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                              </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="consignee.zipCode" className="text-sm font-medium">ZIP</Label>
-                                <Input id="consignee.zipCode" value={getNestedValue(extractedData, 'consignee.zipCode')} onChange={(e) => handleEditChange('consignee.zipCode', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                              </div>
-                            </div>
-                          </div>
-                          {/* Row 5: Phone Numbers */}
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="shipper.phone" className="text-sm font-medium">Shipper Phone</Label>
-                              <Input id="shipper.phone" value={getNestedValue(extractedData, 'shipper.phone')} onChange={(e) => handleEditChange('shipper.phone', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="consignee.phone" className="text-sm font-medium">Consignee Phone</Label>
-                              <Input id="consignee.phone" value={getNestedValue(extractedData, 'consignee.phone')} onChange={(e) => handleEditChange('consignee.phone', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                            </div>
-                          </div>
-                          {/* Row 6: Amount and Truck # */}
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="amount" className="text-sm font-medium">Amount</Label>
-                              <Input id="amount" value={getNestedValue(extractedData, 'amount')} onChange={(e) => handleEditChange('amount', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="truckNumber" className="text-sm font-medium">Truck #</Label>
-                              <Input id="truckNumber" value={getNestedValue(extractedData, 'truckNumber')} onChange={(e) => handleEditChange('truckNumber', e.target.value)} className="transition-custom focus:ring-2 focus:ring-accent/50" />
-                            </div>
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
+                    {/* Row 1: Load # and Weight */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="loadNumber" className="text-sm font-medium">
+                          Load #
+                        </Label>
+                        <Input
+                          id="loadNumber"
+                          value={getNestedValue(extractedData, 'loadNumber')}
+                          onChange={(e) => handleEditChange('loadNumber', e.target.value)}
+                          className="transition-custom focus:ring-2 focus:ring-accent/50"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="weight" className="text-sm font-medium">
+                          Weight
+                        </Label>
+                        <Input
+                          id="weight"
+                          value={getNestedValue(extractedData, 'weight')}
+                          onChange={(e) => handleEditChange('weight', e.target.value)}
+                          className="transition-custom focus:ring-2 focus:ring-accent/50"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Row 2: Shipper Name and Consignee Name */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="shipper.name" className="text-sm font-medium">
+                          Shipper Name
+                        </Label>
+                        <Input
+                          id="shipper.name"
+                          value={getNestedValue(extractedData, 'shipper.name')}
+                          onChange={(e) => handleEditChange('shipper.name', e.target.value)}
+                          className="transition-custom focus:ring-2 focus:ring-accent/50"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="consignee.name" className="text-sm font-medium">
+                          Consignee Name
+                        </Label>
+                        <Input
+                          id="consignee.name"
+                          value={getNestedValue(extractedData, 'consignee.name')}
+                          onChange={(e) => handleEditChange('consignee.name', e.target.value)}
+                          className="transition-custom focus:ring-2 focus:ring-accent/50"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Row 3: Addresses */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="shipper.address" className="text-sm font-medium">
+                          Shipper Address
+                        </Label>
+                        <Input
+                          id="shipper.address"
+                          value={getNestedValue(extractedData, 'shipper.address')}
+                          onChange={(e) => handleEditChange('shipper.address', e.target.value)}
+                          className="transition-custom focus:ring-2 focus:ring-accent/50"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="consignee.address" className="text-sm font-medium">
+                          Consignee Address
+                        </Label>
+                        <Input
+                          id="consignee.address"
+                          value={getNestedValue(extractedData, 'consignee.address')}
+                          onChange={(e) => handleEditChange('consignee.address', e.target.value)}
+                          className="transition-custom focus:ring-2 focus:ring-accent/50"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Row 4: City, State, Zip */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="shipper.city" className="text-sm font-medium">
+                            City
+                          </Label>
+                          <Input
+                            id="shipper.city"
+                            value={getNestedValue(extractedData, 'shipper.city')}
+                            onChange={(e) => handleEditChange('shipper.city', e.target.value)}
+                            className="transition-custom focus:ring-2 focus:ring-accent/50"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="shipper.state" className="text-sm font-medium">
+                            State
+                          </Label>
+                          <Input
+                            id="shipper.state"
+                            value={getNestedValue(extractedData, 'shipper.state')}
+                            onChange={(e) => handleEditChange('shipper.state', e.target.value)}
+                            className="transition-custom focus:ring-2 focus:ring-accent/50"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="shipper.zipCode" className="text-sm font-medium">
+                            ZIP
+                          </Label>
+                          <Input
+                            id="shipper.zipCode"
+                            value={getNestedValue(extractedData, 'shipper.zipCode')}
+                            onChange={(e) => handleEditChange('shipper.zipCode', e.target.value)}
+                            className="transition-custom focus:ring-2 focus:ring-accent/50"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="consignee.city" className="text-sm font-medium">
+                            City
+                          </Label>
+                          <Input
+                            id="consignee.city"
+                            value={getNestedValue(extractedData, 'consignee.city')}
+                            onChange={(e) => handleEditChange('consignee.city', e.target.value)}
+                            className="transition-custom focus:ring-2 focus:ring-accent/50"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="consignee.state" className="text-sm font-medium">
+                            State
+                          </Label>
+                          <Input
+                            id="consignee.state"
+                            value={getNestedValue(extractedData, 'consignee.state')}
+                            onChange={(e) => handleEditChange('consignee.state', e.target.value)}
+                            className="transition-custom focus:ring-2 focus:ring-accent/50"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="consignee.zipCode" className="text-sm font-medium">
+                            ZIP
+                          </Label>
+                          <Input
+                            id="consignee.zipCode"
+                            value={getNestedValue(extractedData, 'consignee.zipCode')}
+                            onChange={(e) => handleEditChange('consignee.zipCode', e.target.value)}
+                            className="transition-custom focus:ring-2 focus:ring-accent/50"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Row 5: Phone Numbers */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="shipper.phone" className="text-sm font-medium">
+                          Shipper Phone
+                        </Label>
+                        <Input
+                          id="shipper.phone"
+                          value={getNestedValue(extractedData, 'shipper.phone')}
+                          onChange={(e) => handleEditChange('shipper.phone', e.target.value)}
+                          className="transition-custom focus:ring-2 focus:ring-accent/50"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="consignee.phone" className="text-sm font-medium">
+                          Consignee Phone
+                        </Label>
+                        <Input
+                          id="consignee.phone"
+                          value={getNestedValue(extractedData, 'consignee.phone')}
+                          onChange={(e) => handleEditChange('consignee.phone', e.target.value)}
+                          className="transition-custom focus:ring-2 focus:ring-accent/50"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Row 6: Amount and Truck # */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="amount" className="text-sm font-medium">
+                          Amount
+                        </Label>
+                        <Input
+                          id="amount"
+                          value={getNestedValue(extractedData, 'amount')}
+                          onChange={(e) => handleEditChange('amount', e.target.value)}
+                          className="transition-custom focus:ring-2 focus:ring-accent/50"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="truckNumber" className="text-sm font-medium">
+                          Truck #
+                        </Label>
+                             <Input
+                          id="truckNumber"
+                          value={getNestedValue(extractedData, 'truckNumber')}
+                          onChange={(e) => handleEditChange('truckNumber', e.target.value)}
+                          className="transition-custom focus:ring-2 focus:ring-accent/50"
+                        />
+                      </div>
+                    </div>
+                 </div>
                 </CardContent>
               </Card>
+            )}
+            {isProcessing && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/70 dark:bg-black/50 rounded-lg">
+                <Loader2 className="w-12 h-12 animate-spin text-primary" />
+              </div>
             )}
           </div>
         </div>
@@ -881,24 +878,6 @@ export default function Home() {
                 </div>
               ))}
             </div>
-          </div>
-        )}
-        {/* RateCon navigation and list */}
-        {rateCons.length > 0 && (
-          <div className="mb-4 flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => setSelectedRateConIdx(i => Math.max(0, i - 1))} disabled={selectedRateConIdx === 0}>&lt;</Button>
-            <span className="text-xs">Rate Con {selectedRateConIdx + 1} of {rateCons.length}</span>
-            <Button size="sm" variant="outline" onClick={() => setSelectedRateConIdx(i => Math.min(rateCons.length - 1, i + 1))} disabled={selectedRateConIdx === rateCons.length - 1}>&gt;</Button>
-            <div className="flex gap-1 ml-4">
-              {rateCons.map((rc, idx) => (
-                <button key={rc.id} className={`w-6 h-6 rounded-full border-2 ${idx === selectedRateConIdx ? 'border-blue-500 bg-blue-200' : 'border-gray-300 bg-white'} transition`} onClick={() => setSelectedRateConIdx(idx)} />
-              ))}
-            </div>
-            <Button size="sm" variant="destructive" className="ml-4" onClick={async () => {
-              const rc = rateCons[selectedRateConIdx];
-              if (!rc) return;
-              await set(dbRef(db, `/sessions/${sessionId}/ratecons/${rc.id}`), null);
-            }}>Delete</Button>
           </div>
         )}
       </div>

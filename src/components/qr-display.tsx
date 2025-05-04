@@ -8,22 +8,19 @@ import { Loader2, QrCode } from "lucide-react"
 
 const BASE_URL = "https://9000-idx-studio-1746197190102.cluster-pb4ljhlmg5hqsxnzpc56r3prxw.cloudworkstations.dev"
 
-export function QRDisplay({ className, sessionId }: { className?: string, sessionId?: string }) {
+export function QRDisplay({ className }: { className?: string }) {
   const [connectionId, setConnectionId] = useState<string>("")
   const [isLoading, setIsLoading] = useState(true)
   const [qrUrl, setQrUrl] = useState<string>("")
   const [showPopover, setShowPopover] = useState(false)
 
   useEffect(() => {
-    let id = sessionId
-    if (!id) {
-      id = Math.random().toString(36).substring(2, 15)
-    }
+    const id = Math.random().toString(36).substring(2, 15)
     const mobileUrl = `${BASE_URL}/mobile?id=${id}`
     setConnectionId(id)
     setQrUrl(mobileUrl)
     setIsLoading(false)
-  }, [sessionId])
+  }, [])
 
   return (
     <div className={cn("fixed top-4 left-4 z-50", className)}>
@@ -37,9 +34,15 @@ export function QRDisplay({ className, sessionId }: { className?: string, sessio
         onBlur={() => setShowPopover(false)}
         style={{ outline: "none" }}
       >
-        
+        <button
+          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/80 dark:bg-black/60 shadow border border-border text-sm font-semibold hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors"
+          aria-label="Show QR code to connect your phone"
+        >
+          <QrCode className="w-5 h-5 text-blue-600 dark:text-blue-300" />
+          Connect Your Phone?
+        </button>
         {showPopover && (
-          <div className="absolute -left-40 -top-5 mt-2 w-80 max-w-xs bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-border p-4 animate-fadein flex flex-col items-center z-50"
+          <div className="absolute left-0 mt-2 w-80 max-w-xs bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-border p-4 animate-fadein flex flex-col items-center z-50"
             style={{ minWidth: 280 }}
           >
             {isLoading ? (
